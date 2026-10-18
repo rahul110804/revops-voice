@@ -1,5 +1,9 @@
+import os
+import sys
 from datetime import date
 
+import boto3
+from botocore.config import Config
 from mcp.server import MCPServer
 
 import db
@@ -8,10 +12,37 @@ db.init()
 
 mcp = MCPServer("revops-voice")
 
+MODEL_ID = os.environ.get("BEDROCK_MODEL_ID", "amazon.nova-micro-v1:0")
+REGION = os.environ.get("AWS_REGION", "us-east-1")
+
 
 def inr(v: int) -> str:
     lakh = v / 100000
     return f"{lakh:.1f} lakh rupees"
+
+
+def ai_draft(company: str, contact: str, stage: str, tone: str) -> str:
+    """Ask Amazon Bedrock to write a short follow-up email."""
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=REGION,
+        config=Config(
+            retries={"max_attempts": 1},
+            connect_timeout=3,
+            read_timeout=8,
+        ),
+    )
+    prompt = (
+        f"Write a {tone} follow-up email of at most three sentences to {contact} "
+        f"at {company}. The deal is in the {stage} stage. "
+        "Do not include a subject line or placeholders."
+    )
+    resp = client.converse(
+        modelId=MODEL_ID,
+        messages=[{"role": "user", "content": [{"text": prompt}]}],
+        inferenceConfig={"maxTokens": 200, "temperature": 0.5},
+    )
+    return resp["output"]["message"]["content"][0]["text"].strip()
 
 
 @mcp.tool()
@@ -73,11 +104,14 @@ def draft_followup(company: str, tone: str = "friendly") -> str:
     c.close()
     if not d:
         return f"I couldn't find a deal matching {company}."
-    # Placeholder. We replace this with Amazon Bedrock later.
-    return (
-        f"Hi {d['contact']}, just checking in on the {d['stage']} stage "
-        f"for {d['company']}. Happy to answer any questions. ({tone})"
-    )
+    try:
+        return ai_draft(d["company"], d["contact"], d["stage"], tone)
+    except Exception as e:
+        print(f"Bedrock unavailable, using template: {e}", file=sys.stderr)
+        return (
+            f"Hi {d['contact']}, just checking in on the {d['stage']} stage "
+            f"for {d['company']}. Happy to answer any questions."
+        )
 
 
 if __name__ == "__main__":
