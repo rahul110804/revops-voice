@@ -10,9 +10,12 @@
   body { margin:0; font-family: system-ui, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
   header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
   header h1 { font-size:18px; margin:0; }
+  .spacer { flex:1; }
   .badge { font-size:12px; padding:3px 10px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
   .badge.ok { color:var(--ok); border-color:var(--ok); }
   .badge.bad { color:var(--bad); border-color:var(--bad); }
+  .hbtn { font-size:13px; padding:7px 14px; border-radius:10px; border:1px solid var(--line); background:transparent; color:var(--text); cursor:pointer; }
+  .hbtn:hover { border-color:var(--accent); }
   main { display:grid; grid-template-columns: 1fr 340px; gap:16px; padding:16px 20px; max-width:1100px; margin:0 auto; }
   @media (max-width: 820px) { main { grid-template-columns: 1fr; } }
   .panel { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; }
@@ -35,8 +38,7 @@
   .trace-item:first-child { border-top:0; margin-top:0; padding-top:0; }
   .tool { color:var(--ok); font-weight:600; }
   .note { font-size:12px; color:var(--muted); margin-top:12px; line-height:1.5; }
-  .card { align-self:stretch; display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
-  @media (max-width: 700px) { .card { grid-template-columns:repeat(2,1fr); } }
+  .card { align-self:stretch; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
   .col { background:#0f1720; border:1px solid var(--line); border-radius:10px; padding:8px; }
   .colhead { font-size:12px; color:var(--muted); margin-bottom:6px; }
   .deal { background:#223244; border-radius:8px; padding:6px 8px; margin-bottom:6px; font-size:12px; }
@@ -44,6 +46,22 @@
   .dn { font-weight:600; }
   .dm { color:var(--muted); }
   .appframe { align-self:stretch; width:100%; height:260px; border:1px solid var(--line); border-radius:12px; background:#0f1720; }
+
+  .modal { position:fixed; inset:0; background:rgba(5,10,15,.75); display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  .modal[hidden] { display:none; }
+  .modalbox { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; width:min(720px,100%); max-height:92vh; overflow-y:auto; }
+  .modalbox h2 { font-size:15px; text-transform:none; letter-spacing:0; color:var(--text); }
+  .mapgrid { display:grid; grid-template-columns:140px 1fr; gap:8px 12px; align-items:center; margin:12px 0; font-size:14px; }
+  select { padding:8px; border-radius:8px; border:1px solid var(--line); background:#0f1720; color:var(--text); font-size:14px; width:100%; }
+  .mrow { display:flex; gap:12px; flex-wrap:wrap; margin:10px 0; font-size:13px; color:var(--muted); }
+  .mrow label { display:flex; flex-direction:column; gap:4px; flex:1; min-width:180px; }
+  .tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:8px; margin:10px 0; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  th, td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; }
+  .mbuttons { display:flex; justify-content:flex-end; gap:10px; margin-top:12px; }
+  button.ghost { padding:9px 16px; border-radius:10px; border:1px solid var(--line); background:transparent; color:var(--text); cursor:pointer; }
+  button.send:disabled { opacity:.5; cursor:wait; }
 </style>
 </head>
 <body>
@@ -51,6 +69,11 @@
   <h1>RevOps Voice <span style="color:var(--muted);font-weight:400">· Alexa+ simulator</span></h1>
   <span id="status" class="badge">checking server…</span>
   <span id="proto" class="badge" style="display:none"></span>
+  <span id="brain" class="badge" style="display:none"></span>
+  <span class="spacer"></span>
+  <button class="hbtn" id="uploadBtn">Upload CSV</button>
+  <button class="hbtn" id="resetBtn">Reset demo data</button>
+  <input type="file" id="file" accept=".csv,text/csv" hidden>
 </header>
 <main>
   <section class="panel">
@@ -66,9 +89,39 @@
   <aside class="panel">
     <h2>MCP tool trace</h2>
     <div id="trace"><pre>Waiting for a request…</pre></div>
-    <p class="note">Each request is routed to a tool and sent to the RevOps Voice MCP server over Streamable HTTP (<code>tools/call</code>). Routing here uses keyword rules; the real Alexa+ would use its own language model to choose the tool.</p>
+    <p class="note">Each request is turned into an MCP <code>tools/call</code> and sent to the RevOps Voice server over Streamable HTTP. A local language model (Ollama) picks the tool; keyword rules are the fallback. The real Alexa+ would use its own model for this step.</p>
   </aside>
 </main>
+
+<div id="modal" class="modal" hidden>
+  <div class="modalbox">
+    <h2>Import deals from CSV</h2>
+    <p class="note" id="mfile" style="margin-top:4px"></p>
+    <div class="mapgrid" id="mapgrid"></div>
+    <div class="mrow">
+      <label>Values are in
+        <select id="munit">
+          <option value="1">rupees (as written)</option>
+          <option value="1000">thousands</option>
+          <option value="100000">lakhs</option>
+          <option value="10000000">crores</option>
+        </select>
+      </label>
+      <label>What to do with existing deals
+        <select id="mmode">
+          <option value="replace">Replace them with this file</option>
+          <option value="append">Add this file to them</option>
+        </select>
+      </label>
+    </div>
+    <div class="tablewrap"><table id="mpreview"></table></div>
+    <p class="note" id="merr" style="color:var(--bad)"></p>
+    <div class="mbuttons">
+      <button class="ghost" id="mcancel">Cancel</button>
+      <button class="send" id="mgo" style="padding:9px 18px">Import</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const chat = document.getElementById('chat');
@@ -98,6 +151,7 @@ function addMsg(text, who) {
   d.textContent = text;
   chat.appendChild(d);
   chat.scrollTop = chat.scrollHeight;
+  return d;
 }
 
 function addCard(card) {
@@ -112,7 +166,7 @@ function addCard(card) {
     col.appendChild(head);
     s.deals.forEach(d => {
       const el = document.createElement('div');
-      el.className = 'deal' + (d.idle_days >= 7 ? ' stale' : '');
+      el.className = 'deal' + (d.idle_days >= 7 && !d.closed ? ' stale' : '');
       const n = document.createElement('div');
       n.className = 'dn';
       n.textContent = d.company;
@@ -167,7 +221,15 @@ function addTrace(data) {
   tool.appendChild(name);
   const args = document.createElement('pre');
   args.textContent = JSON.stringify(data.args || {}, null, 2);
-  d.appendChild(tool); d.appendChild(args);
+  d.appendChild(tool);
+  d.appendChild(args);
+  if (data.routed_by) {
+    const rb = document.createElement('div');
+    rb.className = 'note';
+    rb.style.marginTop = '2px';
+    rb.textContent = 'routed by ' + data.routed_by + (data.ms ? ' · ' + (data.ms / 1000).toFixed(1) + 's' : '');
+    d.appendChild(rb);
+  }
   trace.insertBefore(d, trace.firstChild);
 }
 
@@ -185,15 +247,18 @@ async function send(text) {
   if (!text) return;
   input.value = '';
   addMsg(text, 'user');
+  const wait = addMsg('Thinking…', 'bot');
   try {
     const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text }) });
     const data = await r.json();
+    wait.remove();
     addMsg(data.reply, 'bot');
     if (data.card) addCard(data.card);
     if (data.app) addApp(data.app);
     addTrace(data);
     speak(data.reply);
   } catch (e) {
+    wait.remove();
     addMsg('The simulator could not reach its backend.', 'bot');
   }
 }
@@ -201,7 +266,7 @@ async function send(text) {
 document.getElementById('send').onclick = () => send(input.value);
 input.addEventListener('keydown', e => { if (e.key === 'Enter') send(input.value); });
 
-// Speech recognition (Chrome recommended)
+// ---------- Speech recognition (Chrome recommended) ----------
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const micnote = document.getElementById('micnote');
 const HINTS = {
@@ -248,23 +313,155 @@ if (SR) {
   setNote('This browser has no speech recognition. Use Chrome, or type instead.');
 }
 
-// Server status
-fetch('/api/status').then(r => r.json()).then(s => {
+// ---------- Server status ----------
+function refreshStatus() {
   const el = document.getElementById('status');
-  if (s.ok) {
-    el.textContent = 'MCP server connected · ' + s.tools.length + ' tools';
-    el.classList.add('ok');
-    const p = document.getElementById('proto');
-    p.textContent = 'MCP ' + s.protocol; p.style.display = '';
-  } else {
-    el.textContent = 'MCP server not reachable'; el.classList.add('bad');
-  }
-}).catch(() => {
-  const el = document.getElementById('status');
-  el.textContent = 'backend not reachable'; el.classList.add('bad');
-});
+  return fetch('/api/status').then(r => r.json()).then(s => {
+    el.classList.remove('ok', 'bad');
+    if (s.ok) {
+      el.textContent = 'MCP server connected · ' + s.tools.length + ' tools · ' + s.deals + ' deals';
+      el.classList.add('ok');
+      const p = document.getElementById('proto');
+      if (p) { p.textContent = 'MCP ' + s.protocol; p.style.display = ''; }
+      const b = document.getElementById('brain');
+      if (b && s.brain) {
+        b.textContent = 'Brain: ' + s.brain.label;
+        b.style.display = '';
+        b.classList.toggle('ok', s.brain.mode === 'ollama');
+      }
+    } else {
+      el.textContent = 'MCP server not reachable';
+      el.classList.add('bad');
+    }
+  }).catch(() => {
+    el.classList.remove('ok');
+    el.textContent = 'backend not reachable';
+    el.classList.add('bad');
+  });
+}
+refreshStatus();
+setInterval(refreshStatus, 15000);
 
-addMsg('Hi, I\'m your RevOps assistant. Ask about your pipeline, stalled deals, or tell me about a call.', 'bot');
+// ---------- CSV upload ----------
+const modal = document.getElementById('modal');
+const fileInput = document.getElementById('file');
+const FIELDS = [
+  ['company', 'Company (required)'],
+  ['contact', 'Contact'],
+  ['stage', 'Stage'],
+  ['value', 'Deal value'],
+  ['last_activity', 'Last activity date']
+];
+let currentUpload = null;
+
+document.getElementById('uploadBtn').onclick = () => fileInput.click();
+
+fileInput.onchange = async () => {
+  const f = fileInput.files[0];
+  if (!f) return;
+  if (f.size > 5 * 1024 * 1024) {
+    addMsg('That file is over 5 MB.', 'bot');
+    fileInput.value = '';
+    return;
+  }
+  addMsg('Reading ' + f.name + '…', 'bot');
+  try {
+    const text = await f.text();
+    const r = await fetch('/api/upload/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: f.name, text: text })
+    });
+    const d = await r.json();
+    if (d.error) { addMsg(d.error, 'bot'); }
+    else { openModal(d); }
+  } catch (e) {
+    addMsg('The upload failed. Is the simulator running?', 'bot');
+  }
+  fileInput.value = '';
+};
+
+function openModal(d) {
+  currentUpload = d;
+  document.getElementById('merr').textContent = '';
+  document.getElementById('mfile').textContent = d.filename + ' · ' + d.rows + ' rows · ' + d.columns.length + ' columns';
+  const grid = document.getElementById('mapgrid');
+  grid.textContent = '';
+  FIELDS.forEach(([key, label]) => {
+    const l = document.createElement('div');
+    l.textContent = label;
+    const sel = document.createElement('select');
+    sel.dataset.field = key;
+    const none = document.createElement('option');
+    none.value = ''; none.textContent = '(none)';
+    sel.appendChild(none);
+    d.columns.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      if (d.mapping[key] === c) o.selected = true;
+      sel.appendChild(o);
+    });
+    grid.appendChild(l); grid.appendChild(sel);
+  });
+  const table = document.getElementById('mpreview');
+  table.textContent = '';
+  const thead = document.createElement('tr');
+  d.columns.forEach(c => { const th = document.createElement('th'); th.textContent = c; thead.appendChild(th); });
+  table.appendChild(thead);
+  d.sample.forEach(row => {
+    const tr = document.createElement('tr');
+    row.forEach(v => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+    table.appendChild(tr);
+  });
+  modal.hidden = false;
+}
+
+function closeModal() { modal.hidden = true; currentUpload = null; }
+document.getElementById('mcancel').onclick = closeModal;
+
+document.getElementById('mgo').onclick = async () => {
+  if (!currentUpload) return;
+  const mapping = {};
+  document.querySelectorAll('#mapgrid select').forEach(s => { if (s.value) mapping[s.dataset.field] = s.value; });
+  if (!mapping.company) { document.getElementById('merr').textContent = 'Choose the column that holds the company name.'; return; }
+  const btn = document.getElementById('mgo');
+  btn.disabled = true; btn.textContent = 'Importing…';
+  try {
+    const r = await fetch('/api/upload/commit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: currentUpload.token,
+        mapping: mapping,
+        mode: document.getElementById('mmode').value,
+        multiplier: Number(document.getElementById('munit').value)
+      })
+    });
+    const d = await r.json();
+    if (d.error) { document.getElementById('merr').textContent = d.error; return; }
+    const res = d.result;
+    let msg = 'Imported ' + res.added + ' deals from ' + d.filename;
+    if (res.skipped) msg += ' (' + res.skipped + ' skipped: ' + (res.errors || []).join('; ') + ')';
+    msg += '.';
+    closeModal();
+    addMsg(msg, 'bot');
+    addMsg(d.summary, 'bot');
+    speak('Imported ' + res.added + ' deals. ' + d.summary);
+    refreshStatus();
+  } catch (e) {
+    document.getElementById('merr').textContent = 'Import failed. Is the server running?';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Import';
+  }
+};
+
+document.getElementById('resetBtn').onclick = async () => {
+  if (!confirm('Replace your current deals with the 6 demo deals?')) return;
+  const r = await fetch('/api/reset', { method: 'POST' });
+  const d = await r.json();
+  addMsg(d.error ? d.error : 'Demo data restored: 6 deals.', 'bot');
+  refreshStatus();
+};
+
+addMsg('Hi, I\'m your RevOps assistant. Ask about your pipeline, stalled deals, or tell me about a call. You can also upload your own deals as a CSV.', 'bot');
 </script>
 </body>
 </html>

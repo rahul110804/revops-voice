@@ -29,17 +29,25 @@ def parse_companies(text: str) -> list[str]:
 
 
 def find_company(text_lower: str, companies: list[str]):
-    """Return (company, end_index) for the best company mentioned, or None."""
+    """Return (name, end_index). A shared first word (e.g. 'Acme') is passed on as typed so the server can ask which deal is meant."""
     best = None
     for company in companies:
         name = company.lower()
-        for key in (name, name.split()[0]):
+        first = name.split()[0]
+        for key, is_full in ((name, True), (first, False)):
             idx = text_lower.find(key)
             if idx != -1 and len(key) >= 3:
                 if best is None or len(key) > best[2]:
-                    best = (company, idx + len(key), len(key))
+                    best = (company, idx + len(key), len(key), key, is_full)
                 break
-    return (best[0], best[1]) if best else None
+    if not best:
+        return None
+    company, end, _, key, is_full = best
+    if not is_full:
+        shared = [c for c in companies if c.lower().split()[0] == key]
+        if len(shared) > 1:
+            return key.title(), end
+    return company, end
 
 
 def extract_note(text: str, end: int) -> str:
