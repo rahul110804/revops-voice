@@ -55,7 +55,7 @@ def _short(desc: str) -> str:
     """Keep the first two sentences: enough to choose the tool, cheaper to read."""
     desc = (desc or "").strip().replace("\n", " ")
     parts = re.split(r"(?<=[.!?])\s+", desc)
-    return " ".join(parts[:2])[:220]
+    return " ".join(parts[:2])[:360]
 
 
 def _slim_schema(schema: dict) -> dict:

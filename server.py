@@ -349,6 +349,197 @@ def reset_demo_data() -> str:
     db.reset_to_sample()
     return "Demo data restored."
 
+def _load_rows() -> list:
+    c = db.conn()
+    rows = c.execute("SELECT * FROM deals").fetchall()
+    c.close()
+    out = []
+    for r in rows:
+        try:
+            extra = json.loads(r["extra"] or "{}")
+        except ValueError:
+            extra = {}
+        out.append(
+            {
+                "company": r["company"],
+                "stage": (r["stage"] or "").strip(),
+                "value": r["value"] or 0,
+                "idle": (date.today() - date.fromisoformat(r["last_activity"])).days,
+                "extra": {str(k).strip().lower(): str(v).strip() for k, v in extra.items()},
+            }
+        )
+    return out
+
+
+def _find_key(rows: list, name: str):
+    want = (name or "").strip().lower()
+    if not want:
+        return None
+    keys = sorted({k for r in rows for k in r["extra"]})
+    if want in keys:
+        return want
+    for k in keys:
+        if want in k or k in want:
+            return k
+    return None
+
+
+def _deals(n: int) -> str:
+    return f"{n} deal" + ("" if n == 1 else "s")
+
+
+def _columns_message(rows: list, asked: str) -> str:
+    cols = sorted({k for r in rows for k in r["extra"]})
+    if cols:
+        return f"I don't have a column called {asked}. The extra columns are: {', '.join(cols[:8])}."
+    return f"I don't have a column called {asked}. There are no extra columns in this data."
+
+
+def _group_text(rs: list, metric: str):
+    n = len(rs)
+    total = sum(r["value"] for r in rs)
+    if metric == "count":
+        return n, _deals(n)
+    if metric == "sum":
+        return total, inr(total)
+    if metric == "average":
+        avg = total / n
+        return avg, f"{inr(avg)} average"
+    if metric == "max":
+        best = max(rs, key=lambda r: r["value"])
+        return best["value"], f"{best['company']} at {inr(best['value'])}"
+    worst = min(rs, key=lambda r: r["value"])
+    return -worst["value"], f"{worst['company']} at {inr(worst['value'])}"
+
+
+@mcp.tool()
+def query_deals(
+    metric: str = "count",
+    stage: str = "",
+    min_value_lakh: float = 0,
+    max_value_lakh: float = 0,
+    min_idle_days: int = 0,
+    max_idle_days: int = 0,
+    company_contains: str = "",
+    field: str = "",
+    field_value: str = "",
+    group_by: str = "",
+    top: int = 0,
+    open_only: bool = False,
+) -> str:
+    """Answer number questions about deals: how many, total value, average, largest or smallest. Filter by stage, min_value_lakh, max_value_lakh, min_idle_days, max_idle_days, or any other column with field and field_value. Group by stage or another column with group_by, and list the biggest deals with top. metric is count, sum, average, max or min. Set open_only to skip won and lost deals."""
+    all_rows = _load_rows()
+    if not all_rows:
+        return "You have no deals yet."
+    metric = (metric or "count").strip().lower()
+    metric = {"avg": "average", "mean": "average", "total": "sum", "largest": "max",
+              "biggest": "max", "smallest": "min", "number": "count"}.get(metric, metric)
+    if metric not in ("count", "sum", "average", "max", "min"):
+        metric = "count"
+
+    rows = all_rows
+    if open_only:
+        rows = [r for r in rows if r["stage"].lower() not in CLOSED_STAGES]
+    if stage.strip():
+        s = stage.strip().lower()
+        exact = [r for r in rows if r["stage"].lower() == s]
+        rows = exact or [r for r in rows if s in r["stage"].lower()]
+    if min_value_lakh:
+        rows = [r for r in rows if r["value"] >= min_value_lakh * 100000]
+    if max_value_lakh:
+        rows = [r for r in rows if r["value"] <= max_value_lakh * 100000]
+    if min_idle_days:
+        rows = [r for r in rows if r["idle"] >= min_idle_days]
+    if max_idle_days:
+        rows = [r for r in rows if r["idle"] <= max_idle_days]
+    if company_contains.strip():
+        needle = company_contains.strip().lower()
+        rows = [r for r in rows if needle in r["company"].lower()]
+    if field.strip():
+        key = _find_key(all_rows, field)
+        if not key:
+            return _columns_message(all_rows, field)
+        if field_value.strip():
+            fv = field_value.strip().lower()
+            exact = [r for r in rows if r["extra"].get(key, "").lower() == fv]
+            rows = exact or [r for r in rows if fv in r["extra"].get(key, "").lower()]
+    if not rows:
+        return "No deals match that."
+
+    gb = (group_by or "").strip().lower()
+    if gb:
+        if gb == "stage":
+            def keyfn(r):
+                return r["stage"] or "(none)"
+        else:
+            gk = _find_key(all_rows, gb)
+            if not gk:
+                return _columns_message(all_rows, group_by)
+
+            def keyfn(r, gk=gk):
+                return r["extra"].get(gk) or "(none)"
+
+        groups = {}
+        for r in rows:
+            groups.setdefault(keyfn(r), []).append(r)
+        scored = []
+        for name, rs in groups.items():
+            score, text = _group_text(rs, metric)
+            scored.append((score, name, text))
+        scored.sort(key=lambda x: -x[0])
+        shown = scored[:6]
+        text = f"By {gb}: " + "; ".join(f"{name}, {t}" for _, name, t in shown) + "."
+        if len(scored) > len(shown):
+            text += f" And {len(scored) - len(shown)} more groups."
+        return text
+
+    n = len(rows)
+    total = sum(r["value"] for r in rows)
+    if metric in ("count", "sum"):
+        text = f"{_deals(n)}, worth {inr(total)} in total."
+    elif metric == "average":
+        text = f"Across {_deals(n)}, the average deal is {inr(total / n)}."
+    elif metric == "max":
+        best = max(rows, key=lambda r: r["value"])
+        text = f"The largest of {_deals(n)} is {best['company']} at {inr(best['value'])}."
+    else:
+        worst = min(rows, key=lambda r: r["value"])
+        text = f"The smallest of {_deals(n)} is {worst['company']} at {inr(worst['value'])}."
+    if top and top > 0:
+        k = min(int(top), 10)
+        biggest = sorted(rows, key=lambda r: -r["value"])[:k]
+        text += f" Top {len(biggest)}: " + "; ".join(
+            f"{r['company']}, {inr(r['value'])}" for r in biggest
+        ) + "."
+    return text
+
+
+@mcp.tool()
+def describe_data() -> str:
+    """Describe the loaded deals: how many, total value, the stages, the extra columns, and how many open deals have gone quiet. Use when the user asks what data is loaded or what the deals look like."""
+    rows = _load_rows()
+    if not rows:
+        return "No deals are loaded yet."
+    total = sum(r["value"] for r in rows)
+    stages = {}
+    for r in rows:
+        name = r["stage"] or "Unknown"
+        stages[name] = stages.get(name, 0) + 1
+    order = sorted(stages, key=stage_sort_key)
+    stage_text = ", ".join(f"{stages[s]} {s}" for s in order[:8])
+    cols = sorted({k for r in rows for k in r["extra"]})
+    open_rows = [r for r in rows if r["stage"].lower() not in CLOSED_STAGES]
+    parts = [f"{_deals(len(rows))} worth {inr(total)}", f"Stages: {stage_text}"]
+    if cols:
+        parts.append("Extra columns: " + ", ".join(cols[:8]))
+    if open_rows:
+        big = max(open_rows, key=lambda r: r["value"])
+        quiet = [r for r in open_rows if r["idle"] >= 14]
+        parts.append(f"The largest open deal is {big['company']} at {inr(big['value'])}")
+        parts.append(
+            f"{len(quiet)} of {len(open_rows)} open deals have been quiet for 14 days or more"
+        )
+    return ". ".join(parts) + "."
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", host="127.0.0.1", port=8000)

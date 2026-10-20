@@ -403,9 +403,11 @@ def _commit(data: dict) -> dict:
     )
     result = json.loads(raw)
     summary = client.call_tool("pipeline_summary")
+    observed = client.call_tool("describe_data")
     UPLOADS.pop(data.get("token"), None)
     PENDING.pop("p", None)
-    return {"result": result, "summary": summary, "filename": entry["filename"]}
+    return {"result": result, "summary": summary, "observed": observed,
+            "filename": entry["filename"]}
 
 
 async def upload_commit(request):

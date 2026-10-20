@@ -444,6 +444,7 @@ document.getElementById('mgo').onclick = async () => {
     closeModal();
     addMsg(msg, 'bot');
     addMsg(d.summary, 'bot');
+    if (d.observed) addMsg(d.observed, 'bot');
     speak('Imported ' + res.added + ' deals. ' + d.summary);
     refreshStatus();
   } catch (e) {
