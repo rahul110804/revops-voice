@@ -5,3 +5,11 @@ crm.db
 .env
 .alexa-ai/
 .jetro/
+data/uploads/
+apps_source.txt
+.mcp.json
+.windsurfrules
+AGENT.md
+CLAUDE.md
+.agents/
+.cursor/
