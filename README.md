@@ -49,7 +49,7 @@ The simulator also lets you **upload your own CSV**: it guesses which column is 
 Tested on Windows 11, Python 3.12, Chrome. It should also work elsewhere, but I have not tried.
 
 ```
-git clone <YOUR-REPO-URL>
+git clone https://github.com/rahul110804/revops-voice.git
 cd revops-voice
 python -m venv .venv
 .venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate

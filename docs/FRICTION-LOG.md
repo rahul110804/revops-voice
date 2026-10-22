@@ -73,3 +73,13 @@ Entries from Oct 18-19, 2026.
    show the real assistant calling their MCP server.
 2. **A self-service way to request toolkit access** (Important).
 3. **A clearer Bedrock quota error** (Nice-to-have).
+
+## 9. MCP Inspector v2 interface differs from the instructions found online (Low)
+- Task: Connect the Inspector to my Streamable HTTP server.
+- Actual: The v2 "Servers" screen and "Add Servers" form differ from tutorials; the transport must be changed from stdio by hand.
+- Suggestion: Show a Streamable HTTP example on the empty state.
+
+## 10. MCP Apps host side is hard to find examples for (Medium)
+- Task: Render a server's ui:// resource in my own web page.
+- Actual: I found server-side docs but no short example of the host handshake for a plain web page, so I wrote it from the spec and tested only against my own host.
+- Suggestion: Add a minimal reference host to the docs.

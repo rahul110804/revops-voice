@@ -1,17 +1,19 @@
+import json
+
 from mcp_http import MCPHttpClient
-from router import parse_companies, route
+from router import route
 
 client = MCPHttpClient()
-companies = parse_companies(client.call_tool("list_deals"))
-print("Companies:", companies)
+companies = json.loads(client.call_tool("company_names"))
+print("Companies loaded:", len(companies))
 
 tests = [
     "Which deals are stuck?",
     "Give me the pipeline summary",
-    "Which deals have been idle for 10 days",
-    "Log a call with Acme, sent the pricing sheet",
-    "Draft a formal follow up for Orbit",
-    "What deals do I have",
+    "How many deals are in Demo?",
+    "Total value of proposals above 10 lakh",
+    "Show me the pipeline board",
+    "What data do I have",
     "Tell me a joke",
 ]
 
@@ -23,4 +25,5 @@ for sentence in tests:
         continue
     tool, args = intent
     print("  ->", tool, args)
-    print("  Alexa:", client.call_tool(tool, args))
+    if tool != "show_pipeline":
+        print("  Alexa:", client.call_tool(tool, args))
